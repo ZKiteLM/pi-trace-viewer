@@ -1,0 +1,6 @@
+.playwright-cli/
+node_modules/
+output/
+test/
+pi-session-*.html
+*.log

@@ -1,0 +1,11 @@
+node_modules/
+coverage/
+output/
+.playwright-cli/
+.DS_Store
+*.log
+
+# Local Pi session exports and trace sidecars can contain prompts, tool output,
+# file paths, and other sensitive conversation data. Keep them out of GitHub.
+pi-session-*.html
+.pi-traces/
