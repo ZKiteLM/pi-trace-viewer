@@ -11,7 +11,7 @@ interface BoundSession {
 
 export default function piTraceViewer(pi: ExtensionAPI): void {
 	pi.registerFlag("pi-trace-port", {
-		description: "Local port for the pi trace viewer",
+		description: "Starting local port for the pi trace viewer (increments automatically if occupied)",
 		type: "string",
 		default: "7890",
 	});
@@ -39,7 +39,7 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 			controller = await getViewerController(port);
 		} catch (error) {
 			ctx.ui.notify(
-				`Trace viewer could not bind 127.0.0.1:${port}: ${error instanceof Error ? error.message : String(error)}. Use --pi-trace-port to choose another port. Trace capture is disabled for this session.`,
+				`Trace viewer could not bind 127.0.0.1 (starting at port ${port}): ${error instanceof Error ? error.message : String(error)}. Trace capture is disabled for this session.`,
 				"error",
 			);
 			return;
