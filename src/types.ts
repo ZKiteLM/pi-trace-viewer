@@ -94,6 +94,12 @@ export interface SessionRegistration {
 	snapshot: SessionSnapshot;
 }
 
+export interface TracePersistence {
+	status: "persisted" | "memory_only";
+	filePath?: string;
+	error?: string;
+}
+
 export interface CallView {
 	callId: string;
 	kind: CallKind;

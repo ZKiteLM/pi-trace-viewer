@@ -1,7 +1,5 @@
 node_modules/
 coverage/
-output/
-.playwright-cli/
 .DS_Store
 *.log
 

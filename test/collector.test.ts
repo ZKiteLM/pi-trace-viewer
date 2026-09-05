@@ -1,8 +1,17 @@
 import type { ExtensionContext, MessageEndEvent, MessageUpdateEvent } from "@earendil-works/pi-coding-agent";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach } from "vitest";
 import { describe, expect, it } from "vitest";
 import { TraceCollector } from "../src/collector.ts";
 import { TraceStore } from "../src/store.ts";
 import type { SessionSnapshot } from "../src/types.ts";
+
+const temporaryDirectories: string[] = [];
+afterEach(() => {
+	for (const directory of temporaryDirectories.splice(0)) rmSync(directory, { recursive: true, force: true });
+});
 
 describe("TraceCollector", () => {
 	it("correlates generic context, provider payload, stream events, and final output", () => {
@@ -80,6 +89,32 @@ describe("TraceCollector", () => {
 			content: [{ type: "text", text: "semantic hook summary" }],
 		});
 	});
+
+	it("keeps custom messages in captured generic context", () => {
+		const snapshot = createSnapshot();
+		const store = new TraceStore(snapshot);
+		const collector = new TraceCollector(store, () => snapshot);
+		const context = { getSystemPrompt: () => "system", model: undefined } as unknown as ExtensionContext;
+
+		collector.onContext({
+			type: "context",
+			messages: [{
+				role: "custom",
+				customType: "example-plugin",
+				content: "Injected context",
+				display: false,
+				timestamp: 1,
+			}],
+		}, context);
+
+		const call = store.getCalls()[0];
+		expect(call.context?.messages[0]).toMatchObject({
+			role: "custom",
+			customType: "example-plugin",
+			content: "Injected context",
+			display: false,
+		});
+	});
 });
 
 function createBeforeCompactEvent() {
@@ -102,10 +137,12 @@ function createBeforeCompactEvent() {
 }
 
 function createSnapshot(): SessionSnapshot {
+	const directory = mkdtempSync(join(tmpdir(), "pi-trace-collector-test-"));
+	temporaryDirectories.push(directory);
 	return {
 		id: "session-memory",
-		cwd: "/tmp",
-		header: { type: "session", version: 3, id: "session-memory", timestamp: new Date(0).toISOString(), cwd: "/tmp" },
+		cwd: directory,
+		header: { type: "session", version: 3, id: "session-memory", timestamp: new Date(0).toISOString(), cwd: directory },
 		entries: [],
 		leafId: null,
 		tools: [],

@@ -59,6 +59,10 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		collector.setTools(latestTools);
 		collector.setSystemPrompt(lastSystemPrompt || ctx.getSystemPrompt());
 		bound = { id: initial.id, collector, getSnapshot };
+		const persistence = store.getPersistence();
+		if (persistence.status === "memory_only") {
+			ctx.ui.notify(`Trace viewer is running in memory only: ${persistence.error ?? "trace directory is unavailable"}`, "warning");
+		}
 		ctx.ui.notify(`Trace viewer: ${controller.url}/?session=${encodeURIComponent(initial.id)}`, "info");
 	});
 

@@ -1,4 +1,4 @@
-/* global marked, hljs */
+import * as R from "./render-helpers.js";
 (() => {
   "use strict";
 
@@ -38,7 +38,7 @@
     toast: document.querySelector("#toast"),
   };
 
-  marked.setOptions({ gfm: true, breaks: false });
+  globalThis.marked?.setOptions({ gfm: true, breaks: false });
   bindControls();
   connectEvents();
   refreshAll();
@@ -195,7 +195,7 @@
     elements.tree.innerHTML = layout.map((item) => {
       const entry = item.entry;
       const active = entry.id === (state.leafId || state.session.leafId);
-      const descriptor = describeEntry(entry, toolCalls);
+      const descriptor = R.describeEntry(entry, toolCalls);
       const prefix = buildTreePrefix(item);
       return `<div class="tree-row ${descriptor.className}${active ? " active" : ""}${branch.has(entry.id) ? " on-branch" : ""}" data-entry-id="${escapeAttr(entry.id)}" role="treeitem" tabindex="0" aria-selected="${active}">
         <span class="tree-prefix">${escapeHtml(prefix)}</span><span class="tree-icon">${branch.has(entry.id) ? "•" : " "}</span><span class="tree-lines">${descriptor.lines.map((line) => `<span class="tree-line ${line.className}">${line.label ? `<span class="tree-line-label">${escapeHtml(line.label)}</span>` : ""}${escapeHtml(line.text)}</span>`).join("")}</span>
@@ -225,7 +225,7 @@
   }
 
   function isSetting(entry) {
-    return ["label", "custom", "model_change", "thinking_level_change"].includes(entry.type);
+    return ["label", "model_change", "thinking_level_change", "session_info"].includes(entry.type);
   }
 
   function matchesSessionSearch(entry) {
@@ -254,11 +254,12 @@
         <div><span class="info-label">Cost:</span><span class="info-value">$${stats.cost.toFixed(4)}</span></div>
         <div><span class="info-label">Models:</span><span class="info-value">${escapeHtml([...stats.models].join(", ") || "unknown")}</span></div>
         <div><span class="info-label">Trace calls:</span><span class="info-value">${state.calls.length}</span></div>
+        <div><span class="info-label">Trace storage:</span><span class="info-value ${session.tracePersistence?.status === "memory_only" ? "trace-warning" : ""}">${escapeHtml(formatTracePersistence(session.tracePersistence))}</span></div>
       </div>
       ${session.systemPrompt ? `<details class="header-disclosure"><summary>System prompt</summary><pre>${escapeHtml(session.systemPrompt)}</pre></details>` : ""}
       ${session.tools?.length ? `<details class="header-disclosure"><summary>Tools (${session.tools.length})</summary><pre>${escapeHtml(JSON.stringify(session.tools, null, 2))}</pre></details>` : ""}
     </header>`;
-    elements.messages.innerHTML = branchEntries.map((entry) => renderEntry(entry, entries)).join("");
+    elements.messages.innerHTML = branchEntries.map((entry) => R.renderEntry(entry, entries)).join("");
     bindRenderedContent();
     if (state.pendingTargetScroll) {
       state.pendingTargetScroll = false;
@@ -269,41 +270,6 @@
         target?.scrollIntoView({ block: "end", behavior: "smooth" });
       });
     }
-  }
-
-  function renderEntry(entry, allEntries) {
-    const timestamp = `<div class="message-timestamp">${formatTime(entry.timestamp)}</div>`;
-    const link = `<button class="copy-link" data-copy-link="${escapeAttr(entry.id)}" title="Copy link">#</button>`;
-    if (entry.type === "message") {
-      const message = entry.message || {};
-      if (message.role === "user") return `<article id="entry-${escapeAttr(entry.id)}" class="entry user-message">${link}${timestamp}${renderContent(message.content, "user")}</article>`;
-      if (message.role === "assistant") return `<article id="entry-${escapeAttr(entry.id)}" class="entry assistant-message">${link}${timestamp}${renderContent(message.content, "assistant")}${message.errorMessage ? `<div class="tool-block error"><div class="tool-content">${escapeHtml(message.errorMessage)}</div></div>` : ""}</article>`;
-      if (message.role === "toolResult") {
-        return `<article id="entry-${escapeAttr(entry.id)}" class="entry"><details class="tool-block ${message.isError ? "error" : "success"}"><summary><span class="tool-name">${escapeHtml(message.toolName || "tool")}</span> result${message.isError ? " · error" : ""}</summary><div class="tool-content">${renderContent(message.content, "tool")}</div></details></article>`;
-      }
-    }
-    if (entry.type === "compaction") return `<article id="entry-${escapeAttr(entry.id)}" class="entry"><details class="compaction"><summary>[compaction] Compacted from ${number(entry.tokensBefore)} tokens</summary><div class="summary-content">${renderMarkdownText(entry.summary, "Compaction summary")}</div></details></article>`;
-    if (entry.type === "branch_summary") return `<article id="entry-${escapeAttr(entry.id)}" class="entry"><details class="branch-summary" open><summary>Branch Summary</summary><div class="summary-content">${renderMarkdownText(entry.summary, "Branch summary")}</div></details></article>`;
-    if (entry.type === "model_change") return `<div id="entry-${escapeAttr(entry.id)}" class="entry model-change">${timestamp}Switched to model: ${escapeHtml(`${entry.provider}/${entry.modelId}`)}</div>`;
-    if (entry.type === "thinking_level_change") return `<div id="entry-${escapeAttr(entry.id)}" class="entry setting-change">Thinking level: ${escapeHtml(entry.thinkingLevel)}</div>`;
-    if (entry.type === "custom_message" && entry.display) return `<article id="entry-${escapeAttr(entry.id)}" class="entry"><details class="custom-message" open><summary>${escapeHtml(entry.customType || "custom message")}</summary><div class="summary-content">${renderContent(entry.content, "custom")}</div></details></article>`;
-    return "";
-  }
-
-  function renderContent(content, role) {
-    if (typeof content === "string") return renderMarkdownText(content, `${role} markdown`);
-    if (!Array.isArray(content)) return "";
-    let html = "";
-    const images = [];
-    for (const block of content) {
-      if (!block) continue;
-      if (block.type === "text") html += renderMarkdownText(block.text || "", `${role} markdown`);
-      else if (block.type === "thinking") html += `<details class="thinking-block"><summary>thinking</summary><div class="thinking-content">${escapeHtml(block.thinking || "")}</div></details>`;
-      else if (block.type === "toolCall") html += `<details class="tool-block" open><summary><span class="tool-name">${escapeHtml(block.name || "tool")}</span> call</summary><pre class="json-block">${json(block.arguments)}</pre></details>`;
-      else if (block.type === "image" && block.data) images.push(`<img class="message-image" alt="${escapeAttr(role)} attachment" src="data:${escapeAttr(block.mimeType || "image/png")};base64,${escapeAttr(block.data)}">`);
-      else html += `<pre class="json-block">${json(block)}</pre>`;
-    }
-    return html + (images.length ? `<div class="message-images">${images.join("")}</div>` : "");
   }
 
   function renderCallTree() {
@@ -396,17 +362,17 @@
     }
     if (state.detailTab === "final") {
       if (!call.finalMessage) return unavailable(call.status === "running" ? "The model is still producing output." : "No final normalized message was captured.");
-      return `<section class="data-panel"><div class="panel-heading">Normalized AssistantMessage <button class="small-btn" data-copy-json="final">Copy JSON</button></div><div class="assistant-message">${renderContent(call.finalMessage.content, "assistant")}</div><details class="header-disclosure"><summary>Raw JSON</summary><pre class="json-block" data-json-source="final">${json(call.finalMessage)}</pre></details></section>`;
+      return `<section class="data-panel"><div class="panel-heading">Normalized AssistantMessage <button class="small-btn" data-copy-json="final">Copy JSON</button></div><div class="assistant-message">${R.renderContent(call.finalMessage.content, "assistant")}</div><details class="header-disclosure"><summary>Raw JSON</summary><pre class="json-block" data-json-source="final">${json(call.finalMessage)}</pre></details></section>`;
     }
     const request = call.providerRequests.at(-1);
     const piSource = call.context || call.compactionContext;
-    const piPanel = `<section class="data-panel context-single-panel"><div class="panel-heading">Pi Context <span class="panel-subtitle">${call.compactionContext && !call.context ? "compaction preparation" : "normalized"}</span>${piSource ? ` <button class="small-btn" data-copy-json="context">Copy JSON</button>` : ""}</div>${call.context ? renderPiContext(call.context) : call.compactionContext ? renderCompactionContext(call.compactionContext) : unavailableHtml(call.captureSource === "session_entry" ? "This historical compact call predates trace capture; its original compaction preparation was not stored." : "Not exposed for this internal or unmatched provider call.")}${piSource ? `<details class="raw-json-disclosure"><summary>Raw JSON</summary><pre class="json-block" data-json-source="context">${json(piSource)}</pre></details>` : ""}</section>`;
-    const providerPanel = `<section class="data-panel context-single-panel"><div class="panel-heading">Provider Payload <span class="panel-subtitle">${escapeHtml(call.model?.api || "backend-specific")}${request ? ` · attempt ${request.attempt}` : ""}</span>${request ? ` <button class="small-btn" data-copy-json="payload">Copy JSON</button>` : ""}</div>${request ? `${renderProviderPayload(request.payload)}<details class="raw-json-disclosure"><summary>Raw JSON</summary><pre class="json-block" data-json-source="payload">${json(request.payload)}</pre></details>` : unavailableHtml(call.captureSource === "session_entry" ? "The provider request predates trace capture and cannot be reconstructed from the session file." : "Provider payload has not been emitted yet.")}</section>`;
+    const piPanel = `<section class="data-panel context-single-panel"><div class="panel-heading">Pi Context <span class="panel-subtitle">${call.compactionContext && !call.context ? "compaction preparation" : "normalized"}</span>${piSource ? ` <button class="small-btn" data-copy-json="context">Copy JSON</button>` : ""}</div>${call.context ? R.renderPiContext(call.context) : call.compactionContext ? R.renderCompactionContext(call.compactionContext) : unavailableHtml(call.captureSource === "session_entry" ? "This historical compact call predates trace capture; its original compaction preparation was not stored." : "Not exposed for this internal or unmatched provider call.")}${piSource ? `<details class="raw-json-disclosure"><summary>Raw JSON</summary><pre class="json-block" data-json-source="context">${json(piSource)}</pre></details>` : ""}</section>`;
+    const providerPanel = `<section class="data-panel context-single-panel"><div class="panel-heading">Provider Payload <span class="panel-subtitle">${escapeHtml(call.model?.api || "backend-specific")}${request ? ` · attempt ${request.attempt}` : ""}</span>${request ? ` <button class="small-btn" data-copy-json="payload">Copy JSON</button>` : ""}</div>${request ? `${R.renderProviderPayload(request.payload)}<details class="raw-json-disclosure"><summary>Raw JSON</summary><pre class="json-block" data-json-source="payload">${json(request.payload)}</pre></details>` : unavailableHtml(call.captureSource === "session_entry" ? "The provider request predates trace capture and cannot be reconstructed from the session file." : "Provider payload has not been emitted yet.")}</section>`;
     return `<div class="context-view-switch" role="group" aria-label="Context representation"><button class="context-view-btn${state.contextView === "pi" ? " active" : ""}" data-context-view="pi" aria-pressed="${state.contextView === "pi"}">Pi Context</button><button class="context-view-btn${state.contextView === "provider" ? " active" : ""}" data-context-view="provider" aria-pressed="${state.contextView === "provider"}">Provider Payload</button></div>${state.contextView === "provider" ? providerPanel : piPanel}`;
   }
 
   function bindRenderedContent() {
-    document.querySelectorAll("pre code").forEach((block) => hljs.highlightElement(block));
+    document.querySelectorAll("pre code").forEach((block) => globalThis.hljs?.highlightElement(block));
     document.querySelectorAll(".message-image").forEach((image) => image.addEventListener("click", () => openImage(image.src)));
     document.querySelectorAll("[data-copy-link]").forEach((button) => button.addEventListener("click", () => {
       const url = new URL(location.href);
@@ -419,110 +385,6 @@
       navigator.clipboard.writeText(source?.textContent || "");
       toast("JSON copied");
     }));
-  }
-
-  function renderPiContext(context) {
-    const messages = Array.isArray(context.messages) ? context.messages : [];
-    const tools = Array.isArray(context.tools) ? context.tools : [];
-    return `<div class="structured-context">
-      <details class="context-section" open><summary>System prompt</summary><div class="context-section-body">${renderMarkdownText(context.systemPrompt || "", "System prompt source")}</div></details>
-      <section class="context-section"><div class="context-section-title">Messages <span>${messages.length}</span></div><div class="context-messages">${messages.map((message, index) => renderContextMessage(message, index)).join("") || `<div class="unavailable">No messages</div>`}</div></section>
-      <details class="context-section"><summary>Tools (${tools.length})</summary><div class="context-section-body tool-definition-list">${tools.map((tool) => `<details class="tool-definition"><summary>${escapeHtml(tool.name || "unnamed tool")}</summary><p>${escapeHtml(tool.description || "")}</p><pre class="json-block">${json(tool.parameters || {})}</pre></details>`).join("") || "No tools"}</div></details>
-    </div>`;
-  }
-
-  function renderCompactionContext(context) {
-    const messages = Array.isArray(context.messagesToSummarize) ? context.messagesToSummarize : [];
-    const prefix = Array.isArray(context.turnPrefixMessages) ? context.turnPrefixMessages : [];
-    return `<div class="structured-context">
-      <div class="context-note"><strong>Compaction preparation</strong>Pi exposes the source messages and cut-point metadata here. The exact generated prompt is visible in Provider Payload when the provider hook was captured.</div>
-      <section class="provider-meta">
-        <div><span>reason</span><strong>${escapeHtml(context.reason)}</strong></div><div><span>tokens before</span><strong>${number(context.tokensBefore)}</strong></div><div><span>split turn</span><strong>${context.isSplitTurn ? "yes" : "no"}</strong></div><div><span>retry after</span><strong>${context.willRetry ? "yes" : "no"}</strong></div>
-      </section>
-      ${context.customInstructions ? `<details class="context-section"><summary>Custom compaction instructions</summary><div class="context-section-body">${renderMarkdownText(context.customInstructions, "Instruction source")}</div></details>` : ""}
-      ${context.previousSummary ? `<details class="context-section"><summary>Previous summary</summary><div class="context-section-body">${renderMarkdownText(context.previousSummary, "Previous summary source")}</div></details>` : ""}
-      <section class="context-section"><div class="context-section-title">Messages to summarize <span>${messages.length}</span></div><div class="context-messages">${messages.map((message, index) => renderContextMessage(message, index)).join("") || `<div class="unavailable">No history messages in this compaction pass.</div>`}</div></section>
-      ${prefix.length ? `<section class="context-section"><div class="context-section-title">Split-turn prefix <span>${prefix.length}</span></div><div class="context-messages">${prefix.map((message, index) => renderContextMessage(message, index)).join("")}</div></section>` : ""}
-      <details class="context-section"><summary>Cut point and settings</summary><div class="context-section-body"><pre class="json-block">${json({ firstKeptEntryId: context.firstKeptEntryId, settings: context.settings, fileOps: context.fileOps })}</pre></div></details>
-    </div>`;
-  }
-
-  function renderContextMessage(message, index) {
-    const role = message?.role || message?.type || "unknown";
-    const tool = message?.toolName ? ` · ${message.toolName}` : "";
-    const source = message?.content ?? message?.summary ?? message?.text ?? "";
-    return `<details class="context-message role-${roleClass(role)}"><summary class="context-message-head"><span>#${index + 1}</span><span class="role-badge">${escapeHtml(role + tool)}</span>${message?.isError ? `<span class="error-label">error</span>` : ""}<span class="context-message-preview">${escapeHtml(truncate(contentText(source) || "(no text)", 130))}</span></summary><div class="context-message-body">${renderContent(source, role)}</div><details class="message-raw-json"><summary>Message JSON</summary><pre class="json-block">${json(message)}</pre></details></details>`;
-  }
-
-  function renderProviderPayload(payload) {
-    if (!payload || typeof payload !== "object") return `<div class="provider-scalar">${escapeHtml(String(payload ?? "null"))}</div>`;
-    const input = Array.isArray(payload.input) ? payload.input : Array.isArray(payload.messages) ? payload.messages : typeof payload.prompt === "string" ? [payload.prompt] : [];
-    const instructions = payload.instructions ?? payload.system;
-    const tools = Array.isArray(payload.tools) ? payload.tools : [];
-    const meta = {};
-    for (const key of ["model", "temperature", "top_p", "max_tokens", "max_output_tokens", "reasoning", "tool_choice", "parallel_tool_calls", "store", "stream"]) if (payload[key] !== undefined) meta[key] = payload[key];
-    return `<div class="structured-context provider-context">
-      <section class="provider-meta">${Object.entries(meta).map(([key, value]) => `<div><span>${escapeHtml(key)}</span><strong>${escapeHtml(typeof value === "object" ? JSON.stringify(value) : value)}</strong></div>`).join("") || `<div><span>format</span><strong>generic payload</strong></div>`}</section>
-      ${instructions !== undefined ? `<details class="context-section" open><summary>Instructions / system</summary><div class="context-section-body">${renderProviderContent(instructions, "instructions")}</div></details>` : ""}
-      <section class="context-section"><div class="context-section-title">Backend input <span>${input.length}</span></div><div class="context-messages">${input.map((item, index) => renderProviderItem(item, index)).join("") || `<div class="unavailable">No recognized input/messages field. Use Raw JSON below.</div>`}</div></section>
-      ${tools.length ? `<details class="context-section"><summary>Backend tools (${tools.length})</summary><div class="context-section-body tool-definition-list">${tools.map((tool) => { const definition = tool.function || tool; return `<details class="tool-definition"><summary>${escapeHtml(definition.name || tool.type || "tool")}</summary><p>${escapeHtml(definition.description || "")}</p><pre class="json-block">${json(definition.parameters || definition.input_schema || tool)}</pre></details>`; }).join("")}</div></details>` : ""}
-    </div>`;
-  }
-
-  function renderProviderItem(item, index) {
-    if (typeof item === "string") return `<details class="context-message role-user"><summary class="context-message-head"><span>#${index + 1}</span><span class="role-badge">prompt</span><span class="context-message-preview">${escapeHtml(truncate(item, 130))}</span></summary><div class="context-message-body">${renderMarkdownText(item, "Prompt source")}</div></details>`;
-    const role = item?.role || item?.type || "input item";
-    const name = item?.name ? ` · ${item.name}` : "";
-    if (["function_call", "tool_use"].includes(item?.type)) {
-      const args = typeof item.arguments === "string" ? parseJson(item.arguments) : item.arguments ?? item.input ?? {};
-      return `<details class="context-message role-${roleClass(role)}"><summary class="context-message-head"><span>#${index + 1}</span><span class="role-badge">${escapeHtml(role + name)}</span><span class="context-message-preview">${escapeHtml(truncate(JSON.stringify(args), 130))}</span></summary><div class="context-message-body"><pre class="json-block">${json(args)}</pre></div></details>`;
-    }
-    if (["function_call_output", "tool_result"].includes(item?.type)) {
-      const output = item.output ?? item.content ?? "";
-      return `<details class="context-message role-${roleClass(role)}"><summary class="context-message-head"><span>#${index + 1}</span><span class="role-badge">${escapeHtml(role + name)}</span><span class="context-message-preview">${escapeHtml(truncate(providerContentText(output), 130))}</span></summary><div class="context-message-body">${renderProviderContent(output, role)}</div></details>`;
-    }
-    const content = item?.content ?? item?.text ?? item?.arguments ?? item?.output ?? item;
-    return `<details class="context-message role-${roleClass(role)}"><summary class="context-message-head"><span>#${index + 1}</span><span class="role-badge">${escapeHtml(role + name)}</span><span class="context-message-preview">${escapeHtml(truncate(providerContentText(content), 130))}</span></summary><div class="context-message-body">${renderProviderContent(content, role)}</div></details>`;
-  }
-
-  function renderProviderContent(content, label) {
-    if (typeof content === "string") return renderMarkdownText(content, `${label} source`);
-    if (!Array.isArray(content)) return `<pre class="json-block">${json(content)}</pre>`;
-    return content.map((block) => {
-      if (typeof block === "string") return renderMarkdownText(block, `${label} source`);
-      const text = block?.text ?? block?.input_text ?? block?.output_text;
-      if (typeof text === "string") return renderMarkdownText(text, `${block.type || label} source`);
-      if (["function_call", "tool_use"].includes(block?.type)) return `<details class="tool-block" open><summary><span class="tool-name">${escapeHtml(block.name || "tool")}</span> call</summary><pre class="json-block">${json(block.arguments ?? block.input ?? {})}</pre></details>`;
-      if (["function_call_output", "tool_result"].includes(block?.type)) return `<details class="tool-block success"><summary>tool result</summary>${renderProviderContent(block.output ?? block.content ?? "", "tool result")}</details>`;
-      return `<details class="provider-block"><summary>${escapeHtml(block?.type || "content block")}</summary><pre class="json-block">${json(block)}</pre></details>`;
-    }).join("");
-  }
-
-  function describeEntry(entry, toolCalls) {
-    if (entry.type === "message") {
-      const role = entry.message?.role;
-      const content = Array.isArray(entry.message?.content) ? entry.message.content : [];
-      if (role === "user") return { className: "tree-user", lines: [{ className: "line-user", label: "user: ", text: contentText(entry.message?.content) || "(empty)" }] };
-      if (role === "assistant") {
-        const text = content.filter((block) => block?.type === "text").map((block) => block.text).join(" ").replace(/\s+/g, " ").trim();
-        const thinking = content.filter((block) => block?.type === "thinking").map((block) => block.thinking).join(" ").replace(/\s+/g, " ").trim();
-        const lines = [];
-        if (thinking) lines.push({ className: "line-thinking", label: "thinking: ", text: thinking });
-        if (text) lines.push({ className: entry.message?.stopReason === "error" ? "line-error" : "line-assistant", label: "assistant: ", text });
-        if (!lines.length) lines.push({ className: entry.message?.stopReason === "error" ? "line-error" : "line-assistant", label: "assistant: ", text: entry.message?.errorMessage ? entry.message.errorMessage : "(no text)" });
-        for (const block of content.filter((item) => item?.type === "toolCall")) lines.push({ className: "line-tool-call", label: "call: ", text: formatToolCall(block.name || "tool", block.arguments || {}) });
-        return { className: entry.message?.stopReason === "error" ? "tree-error" : "tree-assistant", lines };
-      }
-      const linked = entry.message?.toolCallId ? toolCalls.get(entry.message.toolCallId) : null;
-      const toolName = entry.message?.toolName || linked?.name || "tool";
-      const callDescription = linked ? formatToolCall(linked.name, linked.arguments) : `[${toolName}]`;
-      const result = contentText(entry.message?.content);
-      return { className: entry.message?.isError ? "tree-tool-result tree-error" : "tree-tool-result", lines: [{ className: entry.message?.isError ? "line-tool-error" : "line-tool-result", label: "result: ", text: `${callDescription}${result ? ` · ${result}` : ""}` }] };
-    }
-    if (entry.type === "compaction") return { className: "tree-compaction", lines: [{ className: "line-compaction", label: "compact: ", text: `${Math.round((entry.tokensBefore || 0) / 1000)}k tokens` }] };
-    if (entry.type === "branch_summary") return { className: "tree-branch", lines: [{ className: "line-branch", label: "branch: ", text: entry.summary || "summary" }] };
-    if (entry.type === "model_change") return { className: "tree-setting", lines: [{ className: "line-setting", label: "model: ", text: `${entry.provider}/${entry.modelId}` }] };
-    return { className: "tree-setting", lines: [{ className: "line-setting", label: `${entry.type}: `, text: entry.label || "" }] };
   }
 
   function pathToRoot(byId, leafId) {
@@ -596,23 +458,13 @@
     return calls;
   }
 
-  function formatToolCall(name, args) {
-    const compact = (value, length = 90) => String(value ?? "").replace(/[\n\t]+/g, " ").trim().slice(0, length);
-    if (["read", "write", "edit"].includes(name)) return `[${name}: ${compact(args.path || args.file_path)}]`;
-    if (name === "bash") return `[bash: ${compact(args.command)}${String(args.command || "").length > 90 ? "…" : ""}]`;
-    if (name === "grep") return `[grep: /${compact(args.pattern, 45)}/ in ${compact(args.path || ".", 45)}]`;
-    if (name === "find") return `[find: ${compact(args.pattern, 45)} in ${compact(args.path || ".", 45)}]`;
-    const serialized = JSON.stringify(args || {});
-    return `[${name}: ${compact(serialized)}${serialized.length > 90 ? "…" : ""}]`;
-  }
-
   function callIdentity(call, sequence) {
     const kind = call.kind === "agent" ? "Agent" : call.kind === "compaction" ? "Compact" : call.kind === "branch_summary" ? "Branch summary" : "Unknown";
     const model = call.model?.id || "unknown model";
     const turn = call.turnIndex === undefined ? "—" : call.turnIndex;
     const messages = call.context?.messages || [];
     const userMessage = [...messages].reverse().find((message) => message?.role === "user");
-    const triggerText = contentText(userMessage?.content) || (call.kind === "compaction" ? "Compress current context" : call.kind === "branch_summary" ? "Summarize abandoned branch" : "Continuation after tool result");
+    const triggerText = R.contentText(userMessage?.content) || (call.kind === "compaction" ? "Compress current context" : call.kind === "branch_summary" ? "Summarize abandoned branch" : "Continuation after tool result");
     const finalContent = Array.isArray(call.finalMessage?.content) ? call.finalMessage.content : [];
     const toolNames = finalContent.filter((block) => block?.type === "toolCall").map((block) => block.name).filter(Boolean);
     const output = finalContent.filter((block) => block?.type === "text").map((block) => block.text).join(" ").replace(/\s+/g, " ").trim();
@@ -642,37 +494,6 @@
     return result;
   }
 
-  function contentText(content) {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return "";
-    return content.map((block) => block?.text || block?.thinking || (block?.type === "toolCall" ? `${block.name}(${JSON.stringify(block.arguments)})` : "")).join(" ").replace(/\s+/g, " ").trim();
-  }
-
-  function providerContentText(content) {
-    if (typeof content === "string") return content;
-    if (!Array.isArray(content)) return JSON.stringify(content ?? "");
-    return content.map((block) => {
-      if (typeof block === "string") return block;
-      const direct = block?.text ?? block?.input_text ?? block?.output_text;
-      if (direct !== undefined) return String(direct);
-      const nested = block?.output ?? block?.content;
-      if (typeof nested === "string") return nested;
-      if (block?.name) return `${block.name} ${JSON.stringify(block.arguments ?? block.input ?? {})}`;
-      return block?.type || "content block";
-    }).join(" ").replace(/\s+/g, " ").trim();
-  }
-
-  function roleClass(value) { return String(value || "unknown").replace(/[^a-zA-Z0-9_-]/g, "-"); }
-
-  function renderMarkdownText(value, rawLabel = "Raw Markdown") {
-    const source = String(value || "");
-    return `<div class="markdown-pair"><div class="markdown">${markdown(source)}</div><details class="raw-markdown"><summary>${escapeHtml(rawLabel)}</summary><pre>${escapeHtml(source)}</pre></details></div>`;
-  }
-
-  function markdown(value) {
-    return marked.parse(escapeHtml(String(value || "")));
-  }
-
   function unavailable(message) {
     return `<div class="data-panel">${unavailableHtml(message)}</div>`;
   }
@@ -680,7 +501,6 @@
     return `<div class="unavailable"><strong>Unavailable at extension level</strong>${escapeHtml(message)}</div>`;
   }
   function json(value) { return escapeHtml(JSON.stringify(value, null, 2) ?? "null"); }
-  function parseJson(value) { try { return JSON.parse(value); } catch { return value; } }
   function escapeHtml(value) { return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]); }
   function escapeAttr(value) { return escapeHtml(value); }
   function number(value) { return new Intl.NumberFormat("en-US").format(value || 0); }
@@ -688,6 +508,11 @@
   function truncate(value, length) { const text = String(value || "").replace(/\s+/g, " ").trim(); return text.length > length ? `${text.slice(0, length)}…` : text; }
   function formatTime(value) { return value ? new Date(value).toLocaleString() : "unknown"; }
   function formatClock(value) { return value ? new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : ""; }
+  function formatTracePersistence(value) {
+    if (!value) return "unknown";
+    if (value.status === "persisted") return value.filePath || "persisted";
+    return value.error ? `memory only · ${value.error}` : "memory only";
+  }
   async function fetchJson(url) {
     const response = await fetch(url, { cache: "no-store" });
     if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);

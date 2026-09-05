@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,6 +28,36 @@ describe("TraceStore", () => {
 		expect(store.getRecords().map((record) => record.sequence)).toEqual([1, 2, 3]);
 		expect(statSync(store.filePath!).mode & 0o777).toBe(0o600);
 		expect(readFileSync(store.filePath!, "utf8").trim().split("\n")).toHaveLength(3);
+	});
+
+	it("stores trace sidecars under the session cwd instead of the pi session directory", () => {
+		const cwd = mkdtempSync(join(tmpdir(), "pi-trace-cwd-"));
+		const sessionDirectory = mkdtempSync(join(tmpdir(), "pi-session-dir-"));
+		temporaryDirectories.push(cwd, sessionDirectory);
+		const snapshot = createSnapshot(cwd, join(sessionDirectory, "session.jsonl"));
+		writeFileSync(snapshot.file!, "", "utf8");
+
+		const store = new TraceStore(snapshot);
+
+		expect(store.filePath).toBe(join(cwd, ".pi-traces", "session-1.jsonl"));
+		expect(existsSync(join(sessionDirectory, ".pi-traces"))).toBe(false);
+		expect(store.getPersistence()).toMatchObject({ status: "persisted", filePath: store.filePath });
+	});
+
+	it("keeps records in memory when cwd cannot be used for trace persistence", () => {
+		const sessionDirectory = mkdtempSync(join(tmpdir(), "pi-session-dir-"));
+		temporaryDirectories.push(sessionDirectory);
+		const missingCwd = join(sessionDirectory, "missing-cwd");
+		const snapshot = createSnapshot(missingCwd, join(sessionDirectory, "session.jsonl"));
+		writeFileSync(snapshot.file!, "", "utf8");
+
+		const store = new TraceStore(snapshot);
+		store.append({ type: "call_started", callId: "call-1", kind: "agent" });
+
+		expect(store.filePath).toBeUndefined();
+		expect(store.getPersistence().status).toBe("memory_only");
+		expect(store.getRecords()).toHaveLength(2);
+		expect(existsSync(join(sessionDirectory, ".pi-traces"))).toBe(false);
 	});
 
 	it("groups event records into a call view", () => {
@@ -98,16 +128,21 @@ function createStore(): { snapshot: SessionSnapshot; store: TraceStore } {
 	temporaryDirectories.push(directory);
 	const sessionFile = join(directory, "session.jsonl");
 	writeFileSync(sessionFile, "", "utf8");
+	const snapshot = createSnapshot(directory, sessionFile);
+	return { snapshot, store: new TraceStore(snapshot) };
+}
+
+function createSnapshot(cwd: string, sessionFile: string): SessionSnapshot {
 	const snapshot: SessionSnapshot = {
 		id: "session-1",
-		cwd: directory,
+		cwd,
 		file: sessionFile,
-		header: { type: "session", version: 3, id: "session-1", timestamp: new Date(0).toISOString(), cwd: directory },
+		header: { type: "session", version: 3, id: "session-1", timestamp: new Date(0).toISOString(), cwd },
 		entries: [],
 		leafId: null,
 		tools: [],
 		active: true,
 		updatedAt: new Date(0).toISOString(),
 	};
-	return { snapshot, store: new TraceStore(snapshot) };
+	return snapshot;
 }

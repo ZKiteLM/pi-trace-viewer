@@ -2,7 +2,7 @@
 
 > A local, live observability UI for Pi coding-agent sessions and LLM context.
 
-[中文 README](./README.zh-CN.md)
+[中文 README](./README.md)
 
 Pi Trace Viewer answers one practical question: **what did the model actually see?**
 
@@ -51,6 +51,10 @@ The LLM Calls sidebar uses chronological numbers and shows:
 
 Single-child chains stay flat. Indentation and connectors appear only for real branches. The Session sidebar scrolls both vertically and horizontally, so long tool arguments and outputs remain accessible.
 
+### 6. Stay compatible with other extensions
+
+Custom messages and custom state entries from other plugins render with safe fallbacks. Visible custom messages appear in the Session view, hidden custom messages are shown collapsed for debugging, and all custom context remains inspectable in LLM Calls.
+
 ## Screenshots
 
 These screenshots come from the same real Pi session.
@@ -59,13 +63,13 @@ These screenshots come from the same real Pi session.
 
 | Pi Trace Viewer (live, navigable, with LLM Calls) | Pi `/export` (complete-history reading) |
 | --- | --- |
-| ![Realtime Session Viewer](./docs/images/realtime-session-viewport.png) | ![Pi export page](./docs/images/pi-export-viewport.png) |
+| ![Realtime Session Viewer](./assets/images/realtime-session-viewport.png) | ![Pi export page](./assets/images/pi-export-viewport.png) |
 
 The viewer keeps the dark terminal-like visual language of `/export` while adding live status, stable branch navigation, click-to-locate behavior, and per-call context inspection.
 
 ### Compaction Context
 
-![Compaction Context](./docs/images/compaction-context-viewport.png)
+![Compaction Context](./assets/images/compaction-context-viewport.png)
 
 The compaction view exposes the source messages and cut-point metadata. Switch to Provider Payload to inspect the backend-specific summary request.
 
@@ -137,7 +141,7 @@ pi remove /path/to/pi-trace-viewer --local
 
 ### Accessing the Viewer
 
-The viewer starts at `http://127.0.0.1:7890` by default and automatically increments to the next available port if occupied; `/trace-view` prints the active URL in the current session. Use `--pi-trace-port <port>` to specify a custom starting port.
+The viewer starts at `http://127.0.0.1:7890` by default and automatically increments to the next available port if occupied; `/trace-view` prints the active URL in the current session. Sessions in the same Pi process share one viewer and can be switched in the UI. Separate Pi processes still run separate local viewers on incremented ports. Use `--pi-trace-port <port>` to specify a custom starting port.
 
 ## Data and privacy
 
@@ -154,23 +158,19 @@ Pi's native session remains at:
 The extension stores its trace at:
 
 ```text
-<session-directory>/.pi-traces/<session-id>.jsonl
+<session-cwd>/.pi-traces/<session-id>.jsonl
 ```
 
-For this project, the path is normally:
-
-```text
-/Users/liming/.pi/agent/sessions/--Users-liming-2-Projects-Code-pi-extention-pi-trace-viewer--/.pi-traces/<session-id>.jsonl
-```
+If the cwd does not exist or cannot be written, the viewer continues in memory-only mode and does not fall back to Pi's native session directory.
 
 The viewer keeps current data in memory while Pi is running. The HTTP server binds to `127.0.0.1` and stops with the Pi process. The `.pi-traces` JSONL file is the only persistent data created by this extension.
 
 ### Cleaning trace data
 
-Uninstalling the package intentionally leaves old trace sidecars in place. After reviewing the exact session directory, remove only its `.pi-traces` folder if desired:
+Uninstalling the package intentionally leaves old trace sidecars in place. After reviewing the exact session cwd, remove only its `.pi-traces` folder if desired:
 
 ```bash
-rm -rf "/path/to/session-directory/.pi-traces"
+rm -rf "/path/to/session-cwd/.pi-traces"
 ```
 
 This is optional and irreversible; it does not delete Pi's native session JSONL.

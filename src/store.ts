@@ -1,6 +1,6 @@
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
-import type { CallView, SessionSnapshot, TraceRecord } from "./types.ts";
+import type { CallView, SessionSnapshot, TracePersistence, TraceRecord } from "./types.ts";
 import { TRACE_SCHEMA_VERSION } from "./types.ts";
 
 export type TraceListener = (record: TraceRecord) => void;
@@ -12,16 +12,18 @@ type TraceRecordInput = TraceRecord extends infer RecordType
 
 export class TraceStore {
 	readonly sessionId: string;
-	readonly filePath: string | undefined;
+	filePath: string | undefined;
 	private records: TraceRecord[] = [];
 	private sequence = 0;
 	private listeners = new Set<TraceListener>();
+	private persistence: TracePersistence;
 
 	constructor(snapshot: SessionSnapshot) {
 		this.sessionId = snapshot.id;
-		this.filePath = snapshot.file
-			? join(dirname(snapshot.file), ".pi-traces", `${snapshot.id}.jsonl`)
-			: undefined;
+		const filePath = join(snapshot.cwd, ".pi-traces", `${snapshot.id}.jsonl`);
+		const error = validateTraceDirectory(snapshot.cwd);
+		this.filePath = error ? undefined : filePath;
+		this.persistence = error ? { status: "memory_only", error } : { status: "persisted", filePath };
 		this.load();
 		if (!this.records.some((record) => record.type === "trace_header")) {
 			this.append({ type: "trace_header", sessionFile: snapshot.file, cwd: snapshot.cwd });
@@ -44,12 +46,24 @@ export class TraceStore {
 		} as TraceRecord;
 		this.records.push(complete);
 		if (this.filePath) {
-			mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
-			appendFileSync(this.filePath, `${JSON.stringify(complete)}\n`, { encoding: "utf8", mode: 0o600 });
-			chmodSync(this.filePath, 0o600);
+			try {
+				mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
+				appendFileSync(this.filePath, `${JSON.stringify(complete)}\n`, { encoding: "utf8", mode: 0o600 });
+				chmodSync(this.filePath, 0o600);
+			} catch (error) {
+				this.persistence = {
+					status: "memory_only",
+					error: error instanceof Error ? error.message : String(error),
+				};
+				this.filePath = undefined;
+			}
 		}
 		for (const listener of this.listeners) listener(complete);
 		return complete;
+	}
+
+	getPersistence(): TracePersistence {
+		return { ...this.persistence };
 	}
 
 	getRecords(): readonly TraceRecord[] {
@@ -173,4 +187,14 @@ export class TraceStore {
 			});
 		}
 	}
+}
+
+function validateTraceDirectory(cwd: string): string | undefined {
+	try {
+		const stat = statSync(cwd);
+		if (!stat.isDirectory()) return `Trace cwd is not a directory: ${cwd}`;
+	} catch (error) {
+		return error instanceof Error ? error.message : String(error);
+	}
+	return undefined;
 }

@@ -140,6 +140,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .line-tool-error, .line-error { background: #3c2828; border-left-color: var(--error); color: #e2abab; }
 .line-compaction { background: var(--message-compaction-bg); border-left-color: var(--warning); color: #e0cf9d; }
 .line-branch { background: var(--message-branch-bg); border-left-color: #b294bb; color: #c8b3d0; }
+.line-custom { background: var(--custom-bg); border-left-color: #b294bb; color: #c8b3d0; }
+.line-custom .tree-line-label { color: #d0b0da; }
 .line-setting { background: #292930; border-left-color: var(--dim); color: var(--muted); }
 .call-meta { display: flex; flex-direction: column; align-items: flex-end; gap: 1px; margin-left: auto; flex: none; padding-left: 12px; color: var(--dim); font-size: 10px; }
 .call-status { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--warning); }
@@ -166,6 +168,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 5px 18px; }
 .info-label { color: var(--muted); margin-right: 7px; }
 .info-value { overflow-wrap: anywhere; }
+.trace-warning { color: var(--warning); }
 .header-actions { display: flex; gap: 6px; margin-left: auto; }
 .header-disclosure { margin-top: 10px; border-top: 1px solid var(--border-muted); padding-top: 8px; }
 .header-disclosure summary { color: var(--warning); cursor: pointer; }
@@ -199,7 +202,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .thinking-block { background: var(--message-assistant-bg); }
 .tool-block { background: var(--message-tool-call-bg); }
 .thinking-block summary, .tool-block summary, .compaction summary, .branch-summary summary, .custom-message summary { padding: 6px 9px; cursor: pointer; color: var(--muted); }
-.thinking-block[open] summary, .tool-block[open] summary, .compaction[open] summary, .branch-summary[open] summary { border-bottom: 1px solid var(--border-muted); color: var(--text); }
+.thinking-block[open] summary, .tool-block[open] summary, .compaction[open] summary, .branch-summary[open] summary, .custom-message[open] summary { border-bottom: 1px solid var(--border-muted); color: var(--text); }
 .thinking-content, .tool-content, .summary-content { padding: 9px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thinking-content { color: var(--muted); font-style: italic; }
 .tool-block.success { background: var(--message-tool-result-bg); }
@@ -208,6 +211,9 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .model-change, .setting-change { margin: 12px 0; padding: 5px 9px; border-left: 2px solid var(--dim); color: var(--muted); }
 .compaction { border-left: 2px solid var(--warning); background: var(--message-compaction-bg); }
 .branch-summary { border-left: 2px solid #b294bb; background: var(--message-branch-bg); }
+.custom-message { border-left: 2px solid #b294bb; background: var(--custom-bg); }
+.custom-message.hidden-custom { border-left-color: var(--dim); background: #26252e; }
+.custom-state { border-left-color: var(--dim); }
 .message-images { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 9px; }
 .message-image { max-width: 320px; max-height: 240px; object-fit: contain; cursor: zoom-in; border: 1px solid var(--border-muted); }
 .copy-link { position: absolute; top: 0; right: 0; opacity: 0; border: 0; background: var(--card-bg); color: var(--muted); }

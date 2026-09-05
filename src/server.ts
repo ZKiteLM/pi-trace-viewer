@@ -138,6 +138,7 @@ class LocalViewerController implements ViewerController {
 					active: snapshot.active,
 					updatedAt: snapshot.updatedAt,
 					callCount: session.store.getCalls().length,
+					tracePersistence: session.store.getPersistence(),
 				};
 			});
 			this.json(response, 200, sessions);
@@ -166,7 +167,7 @@ class LocalViewerController implements ViewerController {
 				}
 				return this.json(response, 200, calls);
 			}
-			return this.json(response, 200, this.snapshot(session));
+			return this.json(response, 200, { ...this.snapshot(session), tracePersistence: session.store.getPersistence() });
 		}
 
 		if (method === "POST" && url.pathname === "/api/refresh") {
@@ -183,6 +184,7 @@ class LocalViewerController implements ViewerController {
 		}
 		if (method === "GET" && (url.pathname === "/" || url.pathname === "/index.html")) return this.file(response, join(webRoot, "index.html"), "text/html");
 		if (method === "GET" && url.pathname === "/app.js") return this.file(response, join(webRoot, "app.js"), "text/javascript");
+		if (method === "GET" && url.pathname === "/render-helpers.js") return this.file(response, join(webRoot, "render-helpers.js"), "text/javascript");
 		if (method === "GET" && url.pathname === "/styles.css") return this.file(response, join(webRoot, "styles.css"), "text/css");
 		this.json(response, 404, { error: "Not found" });
 	}
@@ -225,7 +227,10 @@ interface ViewerGlobal {
 
 export function getViewerController(port: number): Promise<ViewerController> {
 	const globalState = globalThis as ViewerGlobal;
-	globalState[CONTROLLER_KEY] ??= LocalViewerController.start(port);
+	globalState[CONTROLLER_KEY] ??= LocalViewerController.start(port).catch((error) => {
+		delete globalState[CONTROLLER_KEY];
+		throw error;
+	});
 	return globalState[CONTROLLER_KEY];
 }
 
@@ -234,5 +239,6 @@ export async function closeViewerController(): Promise<void> {
 	const controller = globalState[CONTROLLER_KEY];
 	if (!controller) return;
 	delete globalState[CONTROLLER_KEY];
-	await (await controller).close();
+	const resolved = await controller.catch(() => undefined);
+	await resolved?.close();
 }
