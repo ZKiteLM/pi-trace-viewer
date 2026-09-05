@@ -140,6 +140,10 @@ pi remove /path/to/pi-trace-viewer --local
 
 `pi uninstall` 是 `pi remove` 的别名。对于本地路径安装，Pi 会删除设置中的引用，但不会删除你的源代码目录。
 
+### 访问 Viewer
+
+Viewer 默认从 `http://127.0.0.1:7890` 启动，若端口被占用会自动递增寻找下一个可用端口（如 7891、7892...）；在会话中输入 `/trace-view` 可查看当前实际生效的 URL。如需指定自定义起始端口，可以使用 `--pi-trace-port <port>`。
+
 ## 数据与隐私
 
 ### 不会污染 Pi 原生 session
@@ -197,4 +201,4 @@ npm install
 npm run check
 ```
 
-当前检查包含 TypeScript 类型检查和 10 个单元测试。
+当前检查包含 TypeScript 类型检查和单元测试。

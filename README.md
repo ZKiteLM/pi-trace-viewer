@@ -87,7 +87,7 @@ pi remove /path/to/pi-trace-viewer
 # or: pi remove /path/to/pi-trace-viewer --local
 ```
 
-The viewer starts at `http://127.0.0.1:7890`; `/trace-view` prints the URL again. Use `--pi-trace-port 7891` if another Pi process already owns the port.
+The viewer starts at `http://127.0.0.1:7890` by default and automatically increments to the next available port if occupied; `/trace-view` prints the active URL. Use `--pi-trace-port <port>` to specify a custom starting port.
 
 ## Data safety / 数据安全
 

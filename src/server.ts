@@ -39,18 +39,33 @@ class LocalViewerController implements ViewerController {
 		this.url = `http://127.0.0.1:${port}`;
 	}
 
-	static async start(port: number): Promise<LocalViewerController> {
-		const server = createServer();
-		const controller = new LocalViewerController(server, port);
-		server.on("request", (request, response) => controller.handle(request.method ?? "GET", request.url ?? "/", response));
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", reject);
-			server.listen(port, "127.0.0.1", () => {
-				server.off("error", reject);
-				resolve();
-			});
-		});
-		return controller;
+	static async start(startPort: number): Promise<LocalViewerController> {
+		for (let port = startPort; port <= 65535; port++) {
+			try {
+				return await new Promise<LocalViewerController>((resolve, reject) => {
+					const server = createServer();
+					const controller = new LocalViewerController(server, port);
+					server.on("request", (request, response) => controller.handle(request.method ?? "GET", request.url ?? "/", response));
+					const onError = (err: unknown) => {
+						server.close();
+						reject(err);
+					};
+					server.once("error", onError);
+					server.listen(port, "127.0.0.1", () => {
+						server.off("error", onError);
+						resolve(controller);
+					});
+				});
+			} catch (error: unknown) {
+				const isAddrInUse =
+					typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "EADDRINUSE";
+				if (isAddrInUse) {
+					continue;
+				}
+				throw error;
+			}
+		}
+		throw new Error(`Could not find an available port from ${startPort} to 65535`);
 	}
 
 	register(registration: SessionRegistration): TraceStore {

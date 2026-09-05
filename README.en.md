@@ -135,6 +135,10 @@ pi remove /path/to/pi-trace-viewer --local
 
 `pi uninstall` is an alias for `pi remove`. A local-path uninstall removes the settings reference but does not delete your source directory.
 
+### Accessing the Viewer
+
+The viewer starts at `http://127.0.0.1:7890` by default and automatically increments to the next available port if occupied; `/trace-view` prints the active URL in the current session. Use `--pi-trace-port <port>` to specify a custom starting port.
+
 ## Data and privacy
 
 ### Does it modify Pi's native session?
@@ -194,4 +198,4 @@ npm install
 npm run check
 ```
 
-The check runs strict TypeScript validation and the 10 unit tests.
+The check runs strict TypeScript validation and unit tests.
