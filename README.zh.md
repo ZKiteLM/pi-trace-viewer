@@ -34,6 +34,20 @@ pi -e npm:pi-trace-viewer
 pi --pi-trace-port 8890
 ```
 
+如需在某次会话中完全禁用 Trace Viewer：
+
+```bash
+pi --no-pi-trace
+```
+
+### 控制追踪开关
+
+无需重启 Pi，可在会话中动态暂停或恢复追踪：
+
+- `/trace-view` — 显示当前捕获状态及 Viewer 访问链接
+- `/trace-view off` — 暂停抓取后续 LLM 调用（已记录的 Trace 仍可在浏览器中查看）
+- `/trace-view on` — 恢复抓取 LLM 调用
+
 ## 可以查看什么
 
 - 实时 Pi 会话树，包括分支和当前 turn

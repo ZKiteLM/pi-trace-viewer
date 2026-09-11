@@ -205,6 +205,8 @@ button:focus-visible, input:focus-visible, select:focus-visible, [tabindex]:focu
 .thinking-block[open] summary, .tool-block[open] summary, .compaction[open] summary, .branch-summary[open] summary, .custom-message[open] summary { border-bottom: 1px solid var(--border-muted); color: var(--text); }
 .thinking-content, .tool-content, .summary-content { padding: 9px; white-space: pre-wrap; overflow-wrap: anywhere; }
 .thinking-content { color: var(--muted); font-style: italic; }
+.thinking-signature-placeholder { color: var(--muted); font-style: normal; font-family: monospace; font-size: 11px; opacity: 0.85; }
+.thinking-signature { margin-top: 6px; font-size: 11px; color: var(--muted); font-family: monospace; opacity: 0.75; font-style: normal; }
 .tool-block.success { background: var(--message-tool-result-bg); }
 .tool-block.error { background: var(--tool-error-bg); border-color: var(--error); }
 .tool-name { color: var(--accent); font-weight: 700; }

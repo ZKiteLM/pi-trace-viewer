@@ -15,25 +15,50 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		type: "string",
 		default: "7890",
 	});
+	pi.registerFlag("no-pi-trace", {
+		description: "Disable local trace viewer and collection for this session",
+		type: "boolean",
+		default: false,
+	});
 
 	let controller: ViewerController | undefined;
 	let bound: BoundSession | undefined;
+	let captureEnabled = true;
 	let lastSystemPrompt = "";
 	let latestTools: ToolInfo[] = [];
 
 	pi.registerCommand("trace-view", {
-		description: "Show the local session and LLM trace viewer URL",
-		handler: async (_args, ctx) => {
+		description: "Show local trace viewer URL or toggle trace capture (usage: /trace-view [on|off|status])",
+		handler: async (args, ctx) => {
+			if (pi.getFlag("no-pi-trace")) {
+				ctx.ui.notify("Trace viewer is disabled via --no-pi-trace.", "warning");
+				return;
+			}
+			const action = args?.trim().toLowerCase();
+			if (action === "off") {
+				captureEnabled = false;
+				ctx.ui.notify("LLM trace capture paused. Existing traces remain viewable.", "info");
+				return;
+			}
+			if (action === "on") {
+				captureEnabled = true;
+				ctx.ui.notify("LLM trace capture resumed.", "info");
+				return;
+			}
 			if (!controller) {
 				ctx.ui.notify("Trace viewer is not running. Check the startup error above.", "error");
 				return;
 			}
+			const statusLabel = captureEnabled ? "capturing" : "paused";
 			const suffix = bound ? `?session=${encodeURIComponent(bound.id)}` : "";
-			ctx.ui.notify(`${controller.url}/${suffix}`, "info");
+			ctx.ui.notify(`Trace viewer (${statusLabel}): ${controller.url}/${suffix}`, "info");
 		},
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
+		if (pi.getFlag("no-pi-trace")) {
+			return;
+		}
 		const port = parsePort(pi.getFlag("pi-trace-port"));
 		try {
 			controller = await getViewerController(port);
@@ -73,19 +98,43 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		bound?.collector.setTools(latestTools);
 	});
 
-	pi.on("turn_start", (event) => bound?.collector.startTurn(event.turnIndex));
-	pi.on("context", (event, ctx) => bound?.collector.onContext(event, ctx));
-	pi.on("before_provider_request", (event, ctx) => bound?.collector.onProviderRequest(event, ctx));
-	pi.on("after_provider_response", (event, ctx) => bound?.collector.onProviderResponse(event, ctx));
-	pi.on("message_update", (event) => bound?.collector.onMessageUpdate(event));
-	pi.on("message_end", (event) => bound?.collector.onMessageEnd(event));
-	pi.on("session_before_compact", (event, ctx) => bound?.collector.beginCompaction(event, ctx));
-	pi.on("session_compact", (event) => bound?.collector.onCompaction(event));
-	pi.on("session_compact_failed", (event) =>
-		bound?.collector.onCompactionFailed(event.errorMessage ?? (event.aborted ? "Compaction aborted" : "Compaction failed")),
-	);
-	pi.on("session_before_tree", () => bound?.collector.prepare("branch_summary"));
-	pi.on("session_tree", (event) => bound?.collector.onTree(event));
+	pi.on("turn_start", (event) => {
+		if (captureEnabled) bound?.collector.startTurn(event.turnIndex);
+	});
+	pi.on("context", (event, ctx) => {
+		if (captureEnabled) bound?.collector.onContext(event, ctx);
+	});
+	pi.on("before_provider_request", (event, ctx) => {
+		if (captureEnabled) bound?.collector.onProviderRequest(event, ctx);
+	});
+	pi.on("after_provider_response", (event, ctx) => {
+		if (captureEnabled) bound?.collector.onProviderResponse(event, ctx);
+	});
+	pi.on("message_update", (event) => {
+		if (captureEnabled) bound?.collector.onMessageUpdate(event);
+	});
+	pi.on("message_end", (event) => {
+		if (captureEnabled) bound?.collector.onMessageEnd(event);
+	});
+	pi.on("session_before_compact", (event, ctx) => {
+		if (captureEnabled) bound?.collector.beginCompaction(event, ctx);
+	});
+	pi.on("session_compact", (event) => {
+		if (captureEnabled) bound?.collector.onCompaction(event);
+	});
+	pi.on("session_compact_failed", (event) => {
+		if (captureEnabled) {
+			bound?.collector.onCompactionFailed(
+				event.errorMessage ?? (event.aborted ? "Compaction aborted" : "Compaction failed"),
+			);
+		}
+	});
+	pi.on("session_before_tree", () => {
+		if (captureEnabled) bound?.collector.prepare("branch_summary");
+	});
+	pi.on("session_tree", (event) => {
+		if (captureEnabled) bound?.collector.onTree(event);
+	});
 
 	const notifySessionUpdated = () => {
 		if (bound) controller?.notify(bound.id, "session-updated");

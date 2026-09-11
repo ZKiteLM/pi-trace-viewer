@@ -38,7 +38,21 @@ export function renderContent(content, role) {
     if (typeof block === "string") html += renderMarkdownText(block, `${role} markdown`);
     else if (!block || typeof block !== "object") html += `<pre class="json-block">${json(block ?? null)}</pre>`;
     else if (block.type === "text") html += renderMarkdownText(block.text || "", `${role} markdown`);
-    else if (block.type === "thinking") html += `<details class="thinking-block"><summary>thinking</summary><div class="thinking-content">${escapeHtml(block.thinking || "")}</div></details>`;
+    else if (block.type === "thinking") {
+      const thinkingText = block.thinking || "";
+      const signature = block.thinkingSignature;
+      let bodyHtml = "";
+      if (thinkingText) {
+        bodyHtml = escapeHtml(thinkingText);
+        if (signature) {
+          bodyHtml += `<div class="thinking-signature">Signature: ${escapeHtml(signature)}</div>`;
+        }
+      } else if (signature) {
+        bodyHtml = `<span class="thinking-signature-placeholder">[Encrypted reasoning signature: ${escapeHtml(signature)}]</span>`;
+      }
+      const summaryLabel = !thinkingText && signature ? "thinking (encrypted signature)" : "thinking";
+      html += `<details class="thinking-block"><summary>${summaryLabel}</summary><div class="thinking-content">${bodyHtml}</div></details>`;
+    }
     else if (block.type === "toolCall") html += `<details class="tool-block" open><summary><span class="tool-name">${escapeHtml(block.name || "tool")}</span> call</summary><pre class="json-block">${json(block.arguments ?? {})}</pre></details>`;
     else if (block.type === "image" && block.data) images.push(`<img class="message-image" alt="${escapeAttr(role)} attachment" src="data:${escapeAttr(block.mimeType || "image/png")};base64,${escapeAttr(block.data)}">`);
     else html += `<details class="provider-block"><summary>${escapeHtml(block.type || "content block")}</summary><pre class="json-block">${json(block)}</pre></details>`;
@@ -145,7 +159,7 @@ export function contentText(content) {
   if (!Array.isArray(content)) return typeof content === "object" ? safeStringify(content ?? "") : String(content ?? "");
   return content.map((block) => {
     if (typeof block === "string") return block;
-    return block?.text || block?.thinking || (block?.type === "toolCall" ? `${block.name}(${safeStringify(block.arguments)})` : block?.type === "image" ? "[image]" : block?.type || "");
+    return block?.text || block?.thinking || (block?.thinkingSignature ? "[encrypted signature]" : "") || (block?.type === "toolCall" ? `${block.name}(${safeStringify(block.arguments)})` : block?.type === "image" ? "[image]" : block?.type || "");
   }).join(" ").replace(/\s+/g, " ").trim();
 }
 
@@ -207,7 +221,7 @@ function describeMessageEntry(entry, toolCalls) {
   if (role === "user") return { className: "tree-user", lines: [{ className: "line-user", label: "user: ", text: contentText(entry.message?.content) || "(empty)" }] };
   if (role === "assistant") {
     const text = content.filter((block) => block?.type === "text").map((block) => block.text).join(" ").replace(/\s+/g, " ").trim();
-    const thinking = content.filter((block) => block?.type === "thinking").map((block) => block.thinking).join(" ").replace(/\s+/g, " ").trim();
+    const thinking = content.filter((block) => block?.type === "thinking").map((block) => block.thinking || (block.thinkingSignature ? "(encrypted signature)" : "")).filter(Boolean).join(" ").replace(/\s+/g, " ").trim();
     const lines = [];
     if (thinking) lines.push({ className: "line-thinking", label: "thinking: ", text: thinking });
     if (text) lines.push({ className: entry.message?.stopReason === "error" ? "line-error" : "line-assistant", label: "assistant: ", text });
