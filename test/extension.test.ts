@@ -36,6 +36,22 @@ function createMockPi() {
 	};
 }
 
+function createMockContext(notify = vi.fn()): ExtensionContext {
+	return {
+		ui: { notify },
+		getSystemPrompt: () => "system prompt",
+		sessionManager: {
+			getSessionId: () => "mock-session-id",
+			getSessionName: () => "mock-session-name",
+			getCwd: () => "/tmp",
+			getSessionFile: () => "/tmp/mock.jsonl",
+			getHeader: () => ({ model: "test-model" }),
+			getEntries: () => [],
+			getLeafId: () => "leaf-1",
+		},
+	} as unknown as ExtensionContext;
+}
+
 describe("piTraceViewer extension toggle", () => {
 	it("registers flags and trace-view command", () => {
 		const mock = createMockPi();
@@ -46,36 +62,62 @@ describe("piTraceViewer extension toggle", () => {
 		expect(mock.commands.has("trace-view")).toBe(true);
 	});
 
-	it("skips session_start when --no-pi-trace is set", async () => {
+	it("skips session_start when --no-pi-trace is set and allows lazy start with /trace-view on", async () => {
 		const mock = createMockPi();
 		mock.flags.set("no-pi-trace", true);
 		piTraceViewer(mock.pi);
 
 		const notify = vi.fn();
-		const ctx = {
-			ui: { notify },
-		} as unknown as ExtensionContext;
+		const ctx = createMockContext(notify);
 
 		await mock.emit("session_start", {}, ctx);
 		expect(notify).not.toHaveBeenCalled();
 
-		// Calling command should notify that it's disabled via flag
 		const cmd = mock.commands.get("trace-view");
+
+		// When not running, plain command prompts to start
 		await cmd.handler("", ctx);
-		expect(notify).toHaveBeenCalledWith("Trace viewer is disabled via --no-pi-trace.", "warning");
+		expect(notify).toHaveBeenCalledWith("Trace viewer is not running. Type /trace-view on to start.", "info");
+
+		// Lazy start via /trace-view on
+		notify.mockClear();
+		await cmd.handler("on", ctx);
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Trace viewer started (capturing):"), "info");
+
+		// Once started, plain command shows status
+		notify.mockClear();
+		await cmd.handler("", ctx);
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Trace viewer (capturing):"), "info");
+
+		// Pause capture with /trace-view off
+		notify.mockClear();
+		await cmd.handler("off", ctx);
+		expect(notify).toHaveBeenCalledWith("LLM trace capture paused. Existing traces remain viewable.", "info");
+
+		// Stop server with /trace-view stop
+		notify.mockClear();
+		await cmd.handler("stop", ctx);
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Trace viewer server stopped and port released"), "info");
+
+		// Verify it is stopped
+		notify.mockClear();
+		await cmd.handler("", ctx);
+		expect(notify).toHaveBeenCalledWith("Trace viewer is not running. Type /trace-view on to start.", "info");
 	});
 
-	it("handles /trace-view off and on toggling", async () => {
+	it("handles /trace-view off and on toggling when already started", async () => {
 		const mock = createMockPi();
 		piTraceViewer(mock.pi);
 
 		const notify = vi.fn();
-		const ctx = {
-			ui: { notify },
-		} as unknown as ExtensionContext;
+		const ctx = createMockContext(notify);
+
+		await mock.emit("session_start", {}, ctx);
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("Trace viewer:"), "info");
 
 		const cmd = mock.commands.get("trace-view");
 
+		notify.mockClear();
 		await cmd.handler("off", ctx);
 		expect(notify).toHaveBeenCalledWith("LLM trace capture paused. Existing traces remain viewable.", "info");
 
@@ -85,7 +127,10 @@ describe("piTraceViewer extension toggle", () => {
 			await mock.emit("context", {}, ctx);
 		}).not.toThrow();
 
+		notify.mockClear();
 		await cmd.handler("on", ctx);
-		expect(notify).toHaveBeenCalledWith("LLM trace capture resumed.", "info");
+		expect(notify).toHaveBeenCalledWith(expect.stringContaining("LLM trace capture resumed:"), "info");
+
+		await cmd.handler("stop", ctx);
 	});
 });

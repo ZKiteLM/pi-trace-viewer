@@ -27,47 +27,21 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 	let lastSystemPrompt = "";
 	let latestTools: ToolInfo[] = [];
 
-	pi.registerCommand("trace-view", {
-		description: "Show local trace viewer URL or toggle trace capture (usage: /trace-view [on|off|status])",
-		handler: async (args, ctx) => {
-			if (pi.getFlag("no-pi-trace")) {
-				ctx.ui.notify("Trace viewer is disabled via --no-pi-trace.", "warning");
-				return;
-			}
-			const action = args?.trim().toLowerCase();
-			if (action === "off") {
-				captureEnabled = false;
-				ctx.ui.notify("LLM trace capture paused. Existing traces remain viewable.", "info");
-				return;
-			}
-			if (action === "on") {
-				captureEnabled = true;
-				ctx.ui.notify("LLM trace capture resumed.", "info");
-				return;
-			}
-			if (!controller) {
-				ctx.ui.notify("Trace viewer is not running. Check the startup error above.", "error");
-				return;
-			}
-			const statusLabel = captureEnabled ? "capturing" : "paused";
-			const suffix = bound ? `?session=${encodeURIComponent(bound.id)}` : "";
-			ctx.ui.notify(`Trace viewer (${statusLabel}): ${controller.url}/${suffix}`, "info");
-		},
-	});
-
-	pi.on("session_start", async (_event, ctx) => {
-		if (pi.getFlag("no-pi-trace")) {
-			return;
+	async function startViewer(ctx: ExtensionContext): Promise<boolean> {
+		if (controller && bound) {
+			captureEnabled = true;
+			return true;
 		}
+
 		const port = parsePort(pi.getFlag("pi-trace-port"));
 		try {
 			controller = await getViewerController(port);
 		} catch (error) {
 			ctx.ui.notify(
-				`Trace viewer could not bind 127.0.0.1 (starting at port ${port}): ${error instanceof Error ? error.message : String(error)}. Trace capture is disabled for this session.`,
+				`Trace viewer could not bind 127.0.0.1 (starting at port ${port}): ${error instanceof Error ? error.message : String(error)}. Trace capture is disabled.`,
 				"error",
 			);
-			return;
+			return false;
 		}
 
 		latestTools = activeTools(pi);
@@ -84,11 +58,84 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		collector.setTools(latestTools);
 		collector.setSystemPrompt(lastSystemPrompt || ctx.getSystemPrompt());
 		bound = { id: initial.id, collector, getSnapshot };
+		captureEnabled = true;
+
 		const persistence = store.getPersistence();
 		if (persistence.status === "memory_only") {
 			ctx.ui.notify(`Trace viewer is running in memory only: ${persistence.error ?? "trace directory is unavailable"}`, "warning");
 		}
-		ctx.ui.notify(`Trace viewer: ${controller.url}/?session=${encodeURIComponent(initial.id)}`, "info");
+		return true;
+	}
+
+	async function stopViewer(): Promise<void> {
+		if (bound && controller) {
+			const finalSnapshot = { ...bound.getSnapshot(), active: false, updatedAt: new Date().toISOString() };
+			controller.detach(bound.id, finalSnapshot);
+		}
+		bound = undefined;
+		captureEnabled = false;
+		await closeViewerController();
+		controller = undefined;
+	}
+
+	pi.registerCommand("trace-view", {
+		description: "Show local trace viewer URL or toggle trace capture (usage: /trace-view [on|off|stop|status])",
+		handler: async (args, ctx) => {
+			const action = args?.trim().toLowerCase();
+			if (action === "stop") {
+				if (!controller && !bound) {
+					ctx.ui.notify("Trace viewer is already stopped.", "info");
+					return;
+				}
+				await stopViewer();
+				ctx.ui.notify("Trace viewer server stopped and port released. Type /trace-view on to restart.", "info");
+				return;
+			}
+			if (action === "off") {
+				if (!controller || !bound) {
+					ctx.ui.notify("Trace viewer is not running. Type /trace-view on to start.", "info");
+					return;
+				}
+				captureEnabled = false;
+				ctx.ui.notify("LLM trace capture paused. Existing traces remain viewable.", "info");
+				return;
+			}
+			if (action === "on") {
+				if (!controller || !bound) {
+					const started = await startViewer(ctx);
+					if (started && bound && controller) {
+						ctx.ui.notify(
+							`Trace viewer started (capturing): ${controller.url}/?session=${encodeURIComponent(bound.id)}`,
+							"info",
+						);
+					}
+					return;
+				}
+				captureEnabled = true;
+				ctx.ui.notify(
+					`LLM trace capture resumed: ${controller.url}/?session=${encodeURIComponent(bound.id)}`,
+					"info",
+				);
+				return;
+			}
+			if (!controller || !bound) {
+				ctx.ui.notify("Trace viewer is not running. Type /trace-view on to start.", "info");
+				return;
+			}
+			const statusLabel = captureEnabled ? "capturing" : "paused";
+			const suffix = `?session=${encodeURIComponent(bound.id)}`;
+			ctx.ui.notify(`Trace viewer (${statusLabel}): ${controller.url}/${suffix}`, "info");
+		},
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		if (pi.getFlag("no-pi-trace")) {
+			return;
+		}
+		const started = await startViewer(ctx);
+		if (started && bound && controller) {
+			ctx.ui.notify(`Trace viewer: ${controller.url}/?session=${encodeURIComponent(bound.id)}`, "info");
+		}
 	});
 
 	pi.on("before_agent_start", (event) => {
@@ -147,17 +194,15 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 	pi.on("session_tree", notifySessionUpdated);
 
 	pi.on("session_shutdown", async (event) => {
-		if (bound && controller) {
+		if (event.reason === "quit") {
+			await stopViewer();
+		} else if (bound && controller) {
 			const finalSnapshot = { ...bound.getSnapshot(), active: false, updatedAt: new Date().toISOString() };
 			controller.detach(bound.id, finalSnapshot);
+			bound = undefined;
 		}
-		bound = undefined;
 		lastSystemPrompt = "";
 		latestTools = [];
-		if (event.reason === "quit") {
-			await closeViewerController();
-			controller = undefined;
-		}
 	});
 }
 

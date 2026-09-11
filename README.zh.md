@@ -40,13 +40,14 @@ pi --pi-trace-port 8890
 pi --no-pi-trace
 ```
 
-### 控制追踪开关
+### 控制追踪开关与服务
 
-无需重启 Pi，可在会话中动态暂停或恢复追踪：
+无需重启 Pi，可在会话中随时启停追踪或关闭本地服务：
 
-- `/trace-view` — 显示当前捕获状态及 Viewer 访问链接
-- `/trace-view off` — 暂停抓取后续 LLM 调用（已记录的 Trace 仍可在浏览器中查看）
-- `/trace-view on` — 恢复抓取 LLM 调用
+- `/trace-view` — 显示当前捕获状态及 Viewer 访问链接（未启动时提示开启方式）
+- `/trace-view on` — 若未启动则启动本地服务并开始捕获，若已暂停则恢复捕获
+- `/trace-view off` — 暂停抓取后续 LLM 调用（服务保持运行，已有记录仍可查阅）
+- `/trace-view stop` — 彻底关闭 Viewer HTTP 服务并释放本地端口
 
 ## 可以查看什么
 
