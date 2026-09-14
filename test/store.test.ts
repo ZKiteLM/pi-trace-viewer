@@ -2,7 +2,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync 
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { TraceStore } from "../src/store.ts";
+import { TraceStore, readLinesSync } from "../src/store.ts";
 import type { SessionSnapshot } from "../src/types.ts";
 
 const temporaryDirectories: string[] = [];
@@ -120,6 +120,30 @@ describe("TraceStore", () => {
 		const compact = recovered.getCalls().find((call) => call.kind === "compaction");
 		expect(compact).toMatchObject({ status: "success", captureSource: "session_entry", sourceEntryId: "compact-entry" });
 		expect(compact?.providerRequests).toHaveLength(0);
+	});
+
+	it("reads lines in small chunks without corrupting multi-byte unicode or splitting lines", () => {
+		const directory = mkdtempSync(join(tmpdir(), "pi-trace-readlines-"));
+		temporaryDirectories.push(directory);
+		const testFile = join(directory, "test.txt");
+		const content = [
+			"line one with some normal text",
+			"line two with multi-byte unicode: 🦀 测试中文字符 🚀",
+			"line three",
+			"",
+			"line four after empty line",
+		].join("\n");
+		writeFileSync(testFile, content, "utf8");
+
+		const collected: string[] = [];
+		readLinesSync(testFile, (line) => collected.push(line), 16);
+
+		expect(collected).toEqual([
+			"line one with some normal text",
+			"line two with multi-byte unicode: 🦀 测试中文字符 🚀",
+			"line three",
+			"line four after empty line",
+		]);
 	});
 });
 
