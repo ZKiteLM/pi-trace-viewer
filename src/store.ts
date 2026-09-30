@@ -1,5 +1,6 @@
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, statSync } from "node:fs";
+import { appendFileSync, chmodSync, closeSync, existsSync, mkdirSync, openSync, readSync, statSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { StringDecoder } from "node:string_decoder";
 import type { CallView, SessionSnapshot, TracePersistence, TraceRecord } from "./types.ts";
 import { TRACE_SCHEMA_VERSION } from "./types.ts";
 
@@ -144,15 +145,16 @@ export class TraceStore {
 	private load(): void {
 		if (!this.filePath || !existsSync(this.filePath)) return;
 		const loaded: TraceRecord[] = [];
-		for (const line of readFileSync(this.filePath, "utf8").split("\n")) {
-			if (!line.trim()) continue;
+		readLinesSync(this.filePath, (line) => {
 			try {
 				const record = JSON.parse(line) as TraceRecord;
-				if (record.schemaVersion === TRACE_SCHEMA_VERSION && record.sessionId === this.sessionId) loaded.push(record);
+				if (record.schemaVersion === TRACE_SCHEMA_VERSION && record.sessionId === this.sessionId) {
+					loaded.push(record);
+				}
 			} catch {
 				// A truncated final line is expected after an abrupt process exit.
 			}
-		}
+		});
 		this.records = loaded;
 		this.sequence = loaded.reduce((max, record) => Math.max(max, record.sequence), 0);
 	}
@@ -197,4 +199,34 @@ function validateTraceDirectory(cwd: string): string | undefined {
 		return error instanceof Error ? error.message : String(error);
 	}
 	return undefined;
+}
+
+export function readLinesSync(
+	filePath: string,
+	onLine: (line: string) => void,
+	bufferSize = 64 * 1024,
+): void {
+	const fd = openSync(filePath, "r");
+	const buffer = Buffer.alloc(bufferSize);
+	let remainder = "";
+	const decoder = new StringDecoder("utf8");
+
+	try {
+		let bytesRead = 0;
+		while ((bytesRead = readSync(fd, buffer, 0, bufferSize, null)) > 0) {
+			const text = remainder + decoder.write(buffer.subarray(0, bytesRead));
+			const lines = text.split("\n");
+			remainder = lines.pop() ?? "";
+			for (const line of lines) {
+				const trimmed = line.trim();
+				if (trimmed) onLine(trimmed);
+			}
+		}
+		const finalChunk = (remainder + decoder.end()).trim();
+		if (finalChunk) {
+			onLine(finalChunk);
+		}
+	} finally {
+		closeSync(fd);
+	}
 }
