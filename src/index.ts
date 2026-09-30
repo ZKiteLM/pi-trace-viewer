@@ -15,34 +15,33 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		type: "string",
 		default: "7890",
 	});
+	pi.registerFlag("no-pi-trace", {
+		description: "Disable local trace viewer and collection for this session",
+		type: "boolean",
+		default: false,
+	});
 
 	let controller: ViewerController | undefined;
 	let bound: BoundSession | undefined;
+	let captureEnabled = true;
 	let lastSystemPrompt = "";
 	let latestTools: ToolInfo[] = [];
 
-	pi.registerCommand("trace-view", {
-		description: "Show the local session and LLM trace viewer URL",
-		handler: async (_args, ctx) => {
-			if (!controller) {
-				ctx.ui.notify("Trace viewer is not running. Check the startup error above.", "error");
-				return;
-			}
-			const suffix = bound ? `?session=${encodeURIComponent(bound.id)}` : "";
-			ctx.ui.notify(`${controller.url}/${suffix}`, "info");
-		},
-	});
+	async function startViewer(ctx: ExtensionContext): Promise<boolean> {
+		if (controller && bound) {
+			captureEnabled = true;
+			return true;
+		}
 
-	pi.on("session_start", async (_event, ctx) => {
 		const port = parsePort(pi.getFlag("pi-trace-port"));
 		try {
 			controller = await getViewerController(port);
 		} catch (error) {
 			ctx.ui.notify(
-				`Trace viewer could not bind 127.0.0.1 (starting at port ${port}): ${error instanceof Error ? error.message : String(error)}. Trace capture is disabled for this session.`,
+				`Trace viewer could not bind 127.0.0.1 (starting at port ${port}): ${error instanceof Error ? error.message : String(error)}. Trace capture is disabled.`,
 				"error",
 			);
-			return;
+			return false;
 		}
 
 		latestTools = activeTools(pi);
@@ -59,11 +58,84 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		collector.setTools(latestTools);
 		collector.setSystemPrompt(lastSystemPrompt || ctx.getSystemPrompt());
 		bound = { id: initial.id, collector, getSnapshot };
+		captureEnabled = true;
+
 		const persistence = store.getPersistence();
 		if (persistence.status === "memory_only") {
 			ctx.ui.notify(`Trace viewer is running in memory only: ${persistence.error ?? "trace directory is unavailable"}`, "warning");
 		}
-		ctx.ui.notify(`Trace viewer: ${controller.url}/?session=${encodeURIComponent(initial.id)}`, "info");
+		return true;
+	}
+
+	async function stopViewer(): Promise<void> {
+		if (bound && controller) {
+			const finalSnapshot = { ...bound.getSnapshot(), active: false, updatedAt: new Date().toISOString() };
+			controller.detach(bound.id, finalSnapshot);
+		}
+		bound = undefined;
+		captureEnabled = false;
+		await closeViewerController();
+		controller = undefined;
+	}
+
+	pi.registerCommand("trace-view", {
+		description: "Show local trace viewer URL or toggle trace capture (usage: /trace-view [on|off|stop|status])",
+		handler: async (args, ctx) => {
+			const action = args?.trim().toLowerCase();
+			if (action === "stop") {
+				if (!controller && !bound) {
+					ctx.ui.notify("Trace viewer is already stopped.", "info");
+					return;
+				}
+				await stopViewer();
+				ctx.ui.notify("Trace viewer server stopped and port released. Type /trace-view on to restart.", "info");
+				return;
+			}
+			if (action === "off") {
+				if (!controller || !bound) {
+					ctx.ui.notify("Trace viewer is not running. Type /trace-view on to start.", "info");
+					return;
+				}
+				captureEnabled = false;
+				ctx.ui.notify("LLM trace capture paused. Existing traces remain viewable.", "info");
+				return;
+			}
+			if (action === "on") {
+				if (!controller || !bound) {
+					const started = await startViewer(ctx);
+					if (started && bound && controller) {
+						ctx.ui.notify(
+							`Trace viewer started (capturing): ${controller.url}/?session=${encodeURIComponent(bound.id)}`,
+							"info",
+						);
+					}
+					return;
+				}
+				captureEnabled = true;
+				ctx.ui.notify(
+					`LLM trace capture resumed: ${controller.url}/?session=${encodeURIComponent(bound.id)}`,
+					"info",
+				);
+				return;
+			}
+			if (!controller || !bound) {
+				ctx.ui.notify("Trace viewer is not running. Type /trace-view on to start.", "info");
+				return;
+			}
+			const statusLabel = captureEnabled ? "capturing" : "paused";
+			const suffix = `?session=${encodeURIComponent(bound.id)}`;
+			ctx.ui.notify(`Trace viewer (${statusLabel}): ${controller.url}/${suffix}`, "info");
+		},
+	});
+
+	pi.on("session_start", async (_event, ctx) => {
+		if (pi.getFlag("no-pi-trace")) {
+			return;
+		}
+		const started = await startViewer(ctx);
+		if (started && bound && controller) {
+			ctx.ui.notify(`Trace viewer: ${controller.url}/?session=${encodeURIComponent(bound.id)}`, "info");
+		}
 	});
 
 	pi.on("before_agent_start", (event) => {
@@ -73,19 +145,43 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 		bound?.collector.setTools(latestTools);
 	});
 
-	pi.on("turn_start", (event) => bound?.collector.startTurn(event.turnIndex));
-	pi.on("context", (event, ctx) => bound?.collector.onContext(event, ctx));
-	pi.on("before_provider_request", (event, ctx) => bound?.collector.onProviderRequest(event, ctx));
-	pi.on("after_provider_response", (event, ctx) => bound?.collector.onProviderResponse(event, ctx));
-	pi.on("message_update", (event) => bound?.collector.onMessageUpdate(event));
-	pi.on("message_end", (event) => bound?.collector.onMessageEnd(event));
-	pi.on("session_before_compact", (event, ctx) => bound?.collector.beginCompaction(event, ctx));
-	pi.on("session_compact", (event) => bound?.collector.onCompaction(event));
-	pi.on("session_compact_failed", (event) =>
-		bound?.collector.onCompactionFailed(event.errorMessage ?? (event.aborted ? "Compaction aborted" : "Compaction failed")),
-	);
-	pi.on("session_before_tree", () => bound?.collector.prepare("branch_summary"));
-	pi.on("session_tree", (event) => bound?.collector.onTree(event));
+	pi.on("turn_start", (event) => {
+		if (captureEnabled) bound?.collector.startTurn(event.turnIndex);
+	});
+	pi.on("context", (event, ctx) => {
+		if (captureEnabled) bound?.collector.onContext(event, ctx);
+	});
+	pi.on("before_provider_request", (event, ctx) => {
+		if (captureEnabled) bound?.collector.onProviderRequest(event, ctx);
+	});
+	pi.on("after_provider_response", (event, ctx) => {
+		if (captureEnabled) bound?.collector.onProviderResponse(event, ctx);
+	});
+	pi.on("message_update", (event) => {
+		if (captureEnabled) bound?.collector.onMessageUpdate(event);
+	});
+	pi.on("message_end", (event) => {
+		if (captureEnabled) bound?.collector.onMessageEnd(event);
+	});
+	pi.on("session_before_compact", (event, ctx) => {
+		if (captureEnabled) bound?.collector.beginCompaction(event, ctx);
+	});
+	pi.on("session_compact", (event) => {
+		if (captureEnabled) bound?.collector.onCompaction(event);
+	});
+	pi.on("session_compact_failed", (event) => {
+		if (captureEnabled) {
+			bound?.collector.onCompactionFailed(
+				event.errorMessage ?? (event.aborted ? "Compaction aborted" : "Compaction failed"),
+			);
+		}
+	});
+	pi.on("session_before_tree", () => {
+		if (captureEnabled) bound?.collector.prepare("branch_summary");
+	});
+	pi.on("session_tree", (event) => {
+		if (captureEnabled) bound?.collector.onTree(event);
+	});
 
 	const notifySessionUpdated = () => {
 		if (bound) controller?.notify(bound.id, "session-updated");
@@ -98,17 +194,15 @@ export default function piTraceViewer(pi: ExtensionAPI): void {
 	pi.on("session_tree", notifySessionUpdated);
 
 	pi.on("session_shutdown", async (event) => {
-		if (bound && controller) {
+		if (event.reason === "quit") {
+			await stopViewer();
+		} else if (bound && controller) {
 			const finalSnapshot = { ...bound.getSnapshot(), active: false, updatedAt: new Date().toISOString() };
 			controller.detach(bound.id, finalSnapshot);
+			bound = undefined;
 		}
-		bound = undefined;
 		lastSystemPrompt = "";
 		latestTools = [];
-		if (event.reason === "quit") {
-			await closeViewerController();
-			controller = undefined;
-		}
 	});
 }
 

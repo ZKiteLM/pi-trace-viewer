@@ -75,4 +75,32 @@ describe("web render helpers", () => {
 		expect(html).toContain("custom · context-plugin");
 		expect(html).toContain("Context-only custom message");
 	});
+
+	it("renders encrypted thinking signature gracefully when thinking text is empty", () => {
+		const html = renderContent([
+			{
+				type: "thinking",
+				thinking: "",
+				thinkingSignature: "{\"id\":\"rs_123\",\"type\":\"reasoning\"}",
+			},
+		], "assistant");
+
+		expect(html).toContain("thinking (encrypted signature)");
+		expect(html).toContain("Encrypted reasoning signature");
+		expect(html).toContain("rs_123");
+	});
+
+	it("renders both thinking text and signature when both exist", () => {
+		const html = renderContent([
+			{
+				type: "thinking",
+				thinking: "Pondering the solution...",
+				thinkingSignature: "sig_abc",
+			},
+		], "assistant");
+
+		expect(html).toContain("<summary>thinking</summary>");
+		expect(html).toContain("Pondering the solution...");
+		expect(html).toContain("Signature: sig_abc");
+	});
 });

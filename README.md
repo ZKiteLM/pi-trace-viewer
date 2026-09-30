@@ -34,6 +34,21 @@ To choose a custom starting port:
 pi --pi-trace-port 8890
 ```
 
+To disable the trace viewer entirely for a session:
+
+```bash
+pi --no-pi-trace
+```
+
+### Controlling Capture
+
+You can dynamically toggle trace capture or stop the local server inside an active session without restarting Pi:
+
+- `/trace-view` — show current capture status and the viewer URL (prompts to start if not running)
+- `/trace-view on` — start the viewer server if stopped, or resume LLM trace capture
+- `/trace-view off` — pause LLM trace capture (server remains running, existing traces viewable)
+- `/trace-view stop` — stop the viewer HTTP server and release the port
+
 ## What You Can Inspect
 
 - The live Pi session tree, including branches and active turns
