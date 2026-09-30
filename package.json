@@ -1,6 +1,6 @@
 {
   "name": "pi-trace-viewer",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "description": "Live local session and LLM context viewer for pi",
   "license": "MIT",
